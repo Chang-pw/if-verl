@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-PPO Trainer with Ray-based single controller.
+FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
@@ -550,6 +550,16 @@ class RayPPOTrainer:
                 "validation gen temperature should be greater than 0 when enabling do_sample"
             )
 
+        # check multi_turn with tool config
+        if config.actor_rollout_ref.rollout.multi_turn.enable:
+            assert (
+                config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None
+                or config.actor_rollout_ref.rollout.multi_turn.interaction_config_path is not None
+            ), (
+                "tool_config_path or interaction_config_path must be set when enabling multi_turn with tool, "
+                "due to no role-playing support"
+            )
+
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
@@ -686,7 +696,9 @@ class RayPPOTrainer:
         sample_outputs = []
         sample_scores = []
         sample_turns = []
-
+        score_c_lst = []
+        score_l_lst = []
+        reward_tensor_lst = []
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
 
@@ -759,6 +771,12 @@ class RayPPOTrainer:
 
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
+
+            if result['score_c'] or result['score_c']:
+                score_c_lst.append(result['score_c'])
+                score_l_lst.append(result['score_l'])
+            reward_tensor_lst.append(result['reward_tensor'])
+
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
@@ -817,6 +835,16 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+
+        if score_c_lst and score_l_lst and reward_tensor_lst:
+            score_l_lst = sum(score_l_lst) / len(score_l_lst)
+            score_c_lst = sum(score_c_lst) / len(score_c_lst)
+            metric_dict['val/score_c'] = score_c_lst
+            metric_dict['val/score_l'] = score_l_lst
+
+            reward_tensor = torch.cat(reward_tensor_lst, dim=0) 
+            reward_score = reward_tensor.sum(-1).mean().item()
+            metric_dict['val/reward'] = reward_score
 
         return metric_dict
 
@@ -1039,28 +1067,6 @@ class RayPPOTrainer:
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
-    def _start_profiling(self, do_profile: bool) -> None:
-        """Start profiling for all worker groups if profiling is enabled."""
-        if do_profile:
-            self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
-            if self.use_reference_policy:
-                self.ref_policy_wg.start_profile()
-            if self.use_critic:
-                self.critic_wg.start_profile()
-            if self.use_rm:
-                self.rm_wg.start_profile()
-
-    def _stop_profiling(self, do_profile: bool) -> None:
-        """Stop profiling for all worker groups if profiling is enabled."""
-        if do_profile:
-            self.actor_rollout_wg.stop_profile()
-            if self.use_reference_policy:
-                self.ref_policy_wg.stop_profile()
-            if self.use_critic:
-                self.critic_wg.stop_profile()
-            if self.use_rm:
-                self.rm_wg.stop_profile()
-
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch["attention_mask"]
@@ -1130,7 +1136,14 @@ class RayPPOTrainer:
                     else False
                 )
                 with marked_timer("start_profile", timing_raw):
-                    self._start_profiling(do_profile)
+                    if do_profile:
+                        self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
+                        if self.use_reference_policy:
+                            self.ref_policy_wg.start_profile()
+                        if self.use_critic:
+                            self.critic_wg.start_profile()
+                        if self.use_rm:
+                            self.rm_wg.start_profile()
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
@@ -1216,8 +1229,9 @@ class RayPPOTrainer:
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-
+                            reward_tensor, reward_extra_infos_dict,reward_result = compute_reward(batch, self.reward_fn)
+                            batch.batch['constraint_response_lst'] = reward_result['constraint_response_lst']
+                            
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1324,6 +1338,7 @@ class RayPPOTrainer:
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
                         with marked_timer("dump_rollout_generations", timing_raw, color="green"):
+                            print(batch.batch.keys())
                             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
                             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
                             scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
@@ -1370,7 +1385,14 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 with marked_timer("stop_profile", timing_raw):
-                    self._stop_profiling(do_profile)
+                    if do_profile:
+                        self.actor_rollout_wg.stop_profile()
+                        if self.use_reference_policy:
+                            self.ref_policy_wg.stop_profile()
+                        if self.use_critic:
+                            self.critic_wg.stop_profile()
+                        if self.use_rm:
+                            self.rm_wg.stop_profile()
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)

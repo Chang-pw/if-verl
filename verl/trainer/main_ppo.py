@@ -64,8 +64,8 @@ def run_ppo(config) -> None:
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
     if (
         is_cuda_available
-        and config.trainer.get("profile_steps") is not None
-        and len(config.trainer.get("profile_steps", [])) > 0
+        and OmegaConf.select(config.trainer, "profile_steps") is not None
+        and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
@@ -106,7 +106,9 @@ class TaskRunner:
         from verl.utils.fs import copy_to_local
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
+
         pprint(OmegaConf.to_container(config, resolve=True))
+
         OmegaConf.resolve(config)
 
         # Download the checkpoint from HDFS to the local machine.
@@ -122,6 +124,14 @@ class TaskRunner:
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+
+        # Version validation for vllm.
+        if config.actor_rollout_ref.rollout.name in ["vllm"]:
+            from verl.utils.vllm_utils import is_version_ge
+
+            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
+                if not is_version_ge(pkg="vllm", minver="0.7.3"):
+                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
 
         # Define worker classes based on the actor strategy.
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
@@ -262,7 +272,9 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
         dataset_cls = DynamicGenDataset
         print("Using DynamicGenDataset for data generation.")
-
+    elif data_config.custom_cls.get("name", None) == 'instruction':
+        from verl.utils.dataset.if_dataset import IFDataset
+        dataset_cls = IFDataset
     else:
         # Use the default RLHFDataset class if no custom class is specified
         dataset_cls = RLHFDataset

@@ -26,4 +26,5 @@ __all__ = [
     "PrimeRewardManager",
     "register",
     "get_reward_manager_cls",
+    "Instruction_hard_RewardManager",
 ]

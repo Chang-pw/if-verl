@@ -81,7 +81,7 @@ def get_custom_reward_fn(config):
     return partial(_call_with_kwargs, raw_fn, reward_kwargs)
 
 
-def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
+def load_reward_manager(config, tokenizer, num_examine,val=False,**reward_kwargs):
     """
     Load and initialize a reward manager based on the configuration.
 
@@ -108,8 +108,11 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
     # Try to get a custom reward function based on the configuration
-    compute_score = get_custom_reward_fn(config)
+    compute_score = get_custom_reward_fn(config) # str:instruction
     final_compute_score = compute_score
+    
+    if val:
+        final_compute_score += '_val'
 
     if compute_score is None:
         sandbox_config = config.reward_model.get("sandbox_fusion")
@@ -156,7 +159,7 @@ def compute_reward(data: DataProto, reward_fn):
         reward_tensor = reward_fn(data)
         reward_extra_infos_dict = {}
 
-    return reward_tensor, reward_extra_infos_dict
+    return reward_tensor, reward_extra_infos_dict, reward_result
 
 
 @ray.remote(num_cpus=1)
