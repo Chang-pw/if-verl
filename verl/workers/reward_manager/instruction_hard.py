@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from verl import DataProto
-from verl.utils.reward_score import instruction_compute_score, instruction_val_compute_score
+from verl.utils.reward_score.instruction import instruction_compute_score, instruction_val_compute_score
 import torch
 from collections import defaultdict
 
@@ -138,6 +138,7 @@ class Instruction_hard_RewardManager:
                 "reward_extra_info": reward_extra_info,
                 "score_c": score_c,
                 "score_l": score_l,
+                "constraint_response_lst":constraint_response_lst
             }
         else:
             if self.mode=='train':

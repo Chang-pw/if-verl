@@ -53,7 +53,7 @@ max_num_seqs: 1024
 log_prob_micro_batch_size: null
 
 # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-log_prob_micro_batch_size_per_gpu: null
+log_prob_micro_batch_size_per_gpu: 1
 
 # enable dynamic batch size (sequence packing) for log_prob computation
 # same as actor_rollout_ref.actor.use_dynamic_bsz if it exists, otherwise false

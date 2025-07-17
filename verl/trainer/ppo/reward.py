@@ -109,8 +109,8 @@ def load_reward_manager(config, tokenizer, num_examine,val=False,**reward_kwargs
 
     # Try to get a custom reward function based on the configuration
     compute_score = get_custom_reward_fn(config) # str:instruction
-    final_compute_score = compute_score
-    
+    # final_compute_score = compute_score
+    final_compute_score = 'instruction'
     if val:
         final_compute_score += '_val'
 

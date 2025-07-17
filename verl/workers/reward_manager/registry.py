@@ -14,7 +14,11 @@
 
 __all__ = ["register", "get_reward_manager_cls"]
 
-REWARD_MANAGER_REGISTRY = {}
+from .instruction_hard import Instruction_hard_RewardManager
+
+REWARD_MANAGER_REGISTRY = {
+    "instruction_hard": Instruction_hard_RewardManager,
+}
 
 
 def register(name):

@@ -1230,7 +1230,7 @@ class RayPPOTrainer:
                             future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                         else:
                             reward_tensor, reward_extra_infos_dict,reward_result = compute_reward(batch, self.reward_fn)
-                            batch.batch['constraint_response_lst'] = reward_result['constraint_response_lst']
+                            batch.batch['constraint_response_length'] = reward_result['constraint_response_lst']
                             
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):

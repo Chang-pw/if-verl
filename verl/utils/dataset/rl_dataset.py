@@ -192,7 +192,7 @@ class RLHFDataset(Dataset):
         return len(self.dataframe)
 
     def _build_messages(self, example: dict):
-        messages: list = example.pop(self.prompt_key)
+        messages: list = example.pop("prompt")
 
         if self.image_key in example or self.video_key in example:
             for message in messages:
@@ -217,7 +217,8 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
-        messages = self._build_messages(row_dict)
+        # messages = self._build_messages(row_dict)
+        messages = [{"role": "user", "content": row_dict['prompt']}]
         model_inputs = {}
 
         if self.processor is not None:
@@ -318,6 +319,21 @@ class RLHFDataset(Dataset):
         # get prompts with chat template
         if self.return_full_prompt:
             row_dict["full_prompts"] = raw_prompt  # array of strings
+
+        instruction_id_list = row_dict.pop('instruction_id_list')
+        
+        kwargs = row_dict.pop('kwargs')
+        chat = row_dict[self.prompt_key]
+        if 'constraints' in row_dict:
+            constraints = row_dict['constraints']
+        else:
+            constraints = None
+        row_dict["ground_truth"] = {
+            "instruction_id_list": instruction_id_list,
+            "kwargs": kwargs,
+            "prompt": chat,
+            "constraints": constraints
+        }
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
