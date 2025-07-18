@@ -324,10 +324,11 @@ class RLHFDataset(Dataset):
         
         kwargs = row_dict.pop('kwargs')
         chat = row_dict[self.prompt_key]
-        if 'constraints' in row_dict:
-            constraints = row_dict['constraints']
-        else:
-            constraints = None
+        # if 'constraints' in row_dict:
+        #     constraints = row_dict['constraints']
+        # else:
+        #     constraints = None
+        constraints = row_dict.pop('constraint')
         row_dict["ground_truth"] = {
             "instruction_id_list": instruction_id_list,
             "kwargs": kwargs,
