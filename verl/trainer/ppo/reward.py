@@ -108,37 +108,46 @@ def load_reward_manager(config, tokenizer, num_examine,val=False,**reward_kwargs
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
     # Try to get a custom reward function based on the configuration
-    compute_score = get_custom_reward_fn(config) # str:instruction
+    # compute_score = get_custom_reward_fn(config) # str:instruction
     # final_compute_score = compute_score
-    final_compute_score = 'instruction'
-    if val:
-        final_compute_score += '_val'
+    # final_compute_score = 'instruction'
+    # if val:
+    #     final_compute_score += '_val'
 
-    if compute_score is None:
-        sandbox_config = config.reward_model.get("sandbox_fusion")
-        sandbox_url = sandbox_config.get("url") if sandbox_config else None
-        memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024)
-        if sandbox_url:
-            sandbox_manager = multiprocessing.Manager()
-            # Create a semaphore to control concurrent access to the sandbox
-            _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            final_compute_score = partial(
-                default_compute_score,
-                sandbox_fusion_url=sandbox_url,
-                concurrent_semaphore=_concurrent_semaphore,
-                memory_limit_mb=memory_limit_mb,
-            )
-        else:
-            final_compute_score = default_compute_score
+    # if compute_score is None:
+    #     sandbox_config = config.reward_model.get("sandbox_fusion")
+    #     sandbox_url = sandbox_config.get("url") if sandbox_config else None
+    #     memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024)
+    #     if sandbox_url:
+    #         sandbox_manager = multiprocessing.Manager()
+    #         # Create a semaphore to control concurrent access to the sandbox
+    #         _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
+    #         final_compute_score = partial(
+    #             default_compute_score,
+    #             sandbox_fusion_url=sandbox_url,
+    #             concurrent_semaphore=_concurrent_semaphore,
+    #             memory_limit_mb=memory_limit_mb,
+    #         )
+    #     else:
+    #         final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
-    return reward_manager_cls(
-        tokenizer=tokenizer,
-        num_examine=num_examine,
-        compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
-        **reward_kwargs,
-    )
+    if not val:
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score="instruction",
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
+    else:
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score="instruction_val",
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
 
 
 def compute_reward(data: DataProto, reward_fn):
